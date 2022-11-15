@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -40,12 +42,19 @@ func (app *Config) Authenticate(w http.ResponseWriter, r *http.Request) {
 
 	//Check password
 	valid, err := user.PasswordMatches(requestpayload.Password)
+	if err != nil {
+		log.Print("lllogg error ")
+		app.errorJSON(w, err, http.StatusBadRequest)
+		return
+	}
 	if err != nil || !valid {
 		log.Print("Passwords do not match")
 		app.errorJSON(w, errors.New("invalid credentials"), http.StatusBadRequest)
 		return
 	}
 
+	//Log Authentication in the logger service
+	err = app.logRequest("authentication", fmt.Sprintf("%s logged in", user.Email))
 	//return or write the response
 	var payload jsonResponse
 	payload.Error = false
@@ -54,4 +63,33 @@ func (app *Config) Authenticate(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("Logged in user ", user.Email)
 	app.writeJSON(w, http.StatusAccepted, payload)
+}
+
+func (app *Config) logRequest(name, data string) error {
+	var entry struct {
+		Name string `json:"name"`
+		Data string `json:"data"`
+	}
+
+	entry.Name = name
+	entry.Data = data
+
+	jsonData, _ := json.MarshalIndent(entry, "", "\t")
+	logServiceURL := "http://logger-service:8082/log"
+
+	//Create request
+
+	request, err := http.NewRequest("POST", logServiceURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Println("Problem with writing to logger service", err)
+		return err
+	}
+
+	client := &http.Client{}
+	_, err = client.Do(request)
+	if err != nil {
+		log.Println("Problem with writing to logger service ", err)
+		return err
+	}
+	return nil
 }
